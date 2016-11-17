@@ -1,0 +1,50 @@
+#ifndef _FRCP_START_CEU
+#define _FRCP_START_CEU
+
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+#include <amqp_base.ceu>
+#include <connection.ceu>
+#include "handler.ceu"
+#include <channel.ceu>
+#include <exchange.ceu>
+#include <queue.ceu>
+#include <q2x_bind.ceu>
+#include <q_subscribe.ceu>
+
+code/await FRCP_Start(var& Channel channel, var _plain_string id) -> FOREVER
+do
+    // Listen "on exchange" for this resource. FRCP mangles exchanges and topics...
+    var& Exchange res_topic;
+    event& void ex_ok1;
+    RMQ_Exchange(channel, ExchangeContext(id, "fanout",_,_,_,_,_), res_topic, ex_ok1);
+
+    var& Queue queue;
+    event& void q_ok;
+    RMQ_Queue(channel, QueueContext(id,_,_,_,_,_amqp_empty_table), queue, q_ok);
+
+    event& void bind_ok;
+    RMQ_Bind(channel, queue, res_topic, "", _amqp_empty_table, bind_ok);
+
+    event& void qsub_ok;
+    RMQ_Subscribe(channel, queue, _, 0, qsub_ok);
+
+    await FOREVER;
+end
+
+#ifdef start_test
+var& Connection conn;
+event& void conn_ok;
+RMQ_Connection(_, conn, conn_ok);
+
+var& Channel channel;
+event& void ch_ok;
+RMQ_Channel(conn, channel, ch_ok);
+
+await FRCP_Start(&channel, "test_res");
+
+escape 0;
+#endif
+
+#endif
