@@ -1,16 +1,19 @@
 #ifndef _FRCP_PAYLOAD_CEU
 #define _FRCP_PAYLOAD_CEU
 
+#include <c.ceu>
+#include <uv/uv.ceu>
+
 #include <amqp_base.ceu>
 
 /*
  * ```json
  * {
- *     "op": MTYPE,
+ *     "op" : MTYPE,
  *     "mid": ID,
  *     "src": RID,
- *     "ts": TIMESTAMP,
- *     "rp": TOPIC,
+ *     "ts" : TIMESTAMP,
+ *     "rp" : TOPIC,
  *     ....
  * }
  * ```
@@ -23,25 +26,33 @@
  * - rp  :: `TOPIC`     = optional, if the publisher of this message would like any replying messages to be 
  *                        published to a specific TOPIC address  
  */
-data FRCP_Payload with
-    vector[] byte op;
-    vector[] byte mid;     
-    vector[] byte src;
-    vector[] byte ts; 
-    vector[] byte rp    = [] .. ""; 
-    vector[] byte props = [] .. "";
-    vector[] byte guard = [] .. "";
+
+#define FRCP_OP_CONFIGURE "configure"
+#define FRCP_OP_CREATE    "create"
+#define FRCP_OP_INFORM    "inform"
+#define FRCP_OP_REQUEST   "request"
+#define FRCP_OP_RELEASE   "release"
+
+data Payload with
+    var      _plain_string op;
+    vector[] byte          mid;     
+    vector[] byte          src;
+    vector[] byte          ts; 
+    vector[] byte          rp    = [] .. ""; 
+    vector[] byte          props = [] .. "";
+    vector[] byte          guard = [] .. "";
 end
 
 /*
  * ```json
  * {
- *     "op": "inform",
- *     "mid": "ID",
- *     "src": "RID",
- *     "ts": "TIMESTAMP",
- *     "it":"TYPE",
- *     "cid": "CID",
+ *     "op" : "inform",
+ *     "mid": ID,
+ *     "src": RID,
+ *     "ts" : TIMESTAMP,
+ *     "it" : TYPE,
+ *     "cid": CID,
+      ["reason": REASON "]
  *    ....
  * }
  * ```
@@ -56,6 +67,9 @@ end
  * - cid :: `CID`  = this is the Context ID for this message. This element or object must be present only if this 
  *                   inform message is a reply to another message, in which case CID must be the ID of the original 
  *                   message. This element is not present in a spontaneous inform message.
+ *
+ * - reason :: `REASON` = optional reason that explains in more detail why a failure occurred. 
+ * 
  */
 #define FRCP_IT_CREATION_OK     "CREATION.OK"
 #define FRCP_IT_CREATION_FAILED "CREATION.FAILED"
@@ -64,11 +78,13 @@ end
 #define FRCP_IT_ERROR           "ERROR"
 #define FRCP_IT_WARN            "WARN"
 
-data FRCP_Payload.Inform with
-    vector[] byte it;
-    vector[] byte cid;
-    vector[] byte reason = [] .. ""; 
+
+data Payload.Inform with
+    var      _plain_string it;
+    vector[] byte          cid;
+    vector[] byte          reason = [] .. ""; 
 end
+
 
 #endif
 
