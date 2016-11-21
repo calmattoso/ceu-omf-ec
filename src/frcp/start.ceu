@@ -4,31 +4,21 @@
 #include <c.ceu>
 #include <uv/uv.ceu>
 
-#include <amqp_base.ceu>
-#include <connection.ceu>
-#include "handler.ceu"
-#include <channel.ceu>
-#include <exchange.ceu>
-#include <queue.ceu>
-#include <q2x_bind.ceu>
-#include <q_subscribe.ceu>
+#include "communicator.ceu"
+#include "topic.ceu"
 
-code/await FRCP_Start(var& Channel channel, var _plain_string id) -> FOREVER
+code/await FRCP_Start(var& Communicator communicator, vector&[] byte id) -> FOREVER
 do
-    // Listen "on exchange" for this resource. FRCP mangles exchanges and topics...
-    var& Exchange res_topic;
-    event& void ex_ok1;
-    RMQ_Exchange(channel, ExchangeContext(id, "fanout",_,_,_,_,_), res_topic, ex_ok1);
+    var& Topic res_topic;
+    event& void topic_ok;
+    spawn New_Topic(&communicator, &id) -> (&res_topic, &topic_ok);
+    await topic_ok;
 
-    var& Queue queue;
-    event& void q_ok;
-    RMQ_Queue(channel, QueueContext(id,_,_,_,_,_amqp_empty_table), queue, q_ok);
+    event& void sub_ok;
+    spawn Subscribe_Topic(&communicator, &res_topic) -> (&sub_ok);
+    await sub_ok;
 
-    event& void bind_ok;
-    RMQ_Bind(channel, queue, res_topic, "", _amqp_empty_table, bind_ok);
-
-    event& void qsub_ok;
-    RMQ_Subscribe(channel, queue, _, 0, qsub_ok);
+    spawn Channel_Consume(&communicator.channel, &outer.default_handlers);
 
     await FOREVER;
 end
@@ -36,13 +26,21 @@ end
 #ifdef start_test
 var& Connection conn;
 event& void conn_ok;
-RMQ_Connection(_, conn, conn_ok);
+watching New_Connection(_) -> (&conn, &conn_ok) do
+    await conn_ok;
 
-var& Channel channel;
-event& void ch_ok;
-RMQ_Channel(conn, channel, ch_ok);
+    var& Channel channel;
+    event& void ch_ok;
+    spawn New_Channel(&conn) -> (&channel, &ch_ok);
+    await ch_ok;
 
-await FRCP_Start(&channel, "test_res");
+    var Communicator comm = val Communicator(&channel);
+
+    vector[] byte res_id = [] .. "test_resource";
+    spawn FRCP_Start(&comm, &res_id);
+
+    await 3s;
+end
 
 escape 0;
 #endif
