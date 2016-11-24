@@ -81,7 +81,7 @@ end
 
 data Payload.Inform with
     var      _plain_string it;
-    vector[] byte          cid;
+    vector[] byte          cid    = [] .. "";
     vector[] byte          reason = [] .. ""; 
 end
 
