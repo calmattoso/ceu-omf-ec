@@ -1,0 +1,66 @@
+#ifndef _FRCP_INFORM_CEU
+#define _FRCP_INFORM_CEU
+
+native/pre do
+    ##include <assert.h>
+end
+
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+#include <amqp_base.ceu>
+#include <connection.ceu>
+#include <channel.ceu>
+
+#include "frcp_base.ceu"
+#include "communicator.ceu"
+#include "topic.ceu"
+#include "start.ceu"
+#include "payload.ceu"
+
+data PayloadContext with
+    vector[] byte          props;
+
+    // Inform attributes...
+    var      _plain_string it;
+    vector[] byte          cid    = []..""; // optional 
+    vector[] byte          reason = []..""; // optional
+end
+
+code/await Post_Inform(var& Communicator comm, var& Topic topic, var& InformContext ctx) -> void
+do
+    
+end
+
+#ifdef inform_test
+var& Connection conn;
+event& void conn_ok;
+watching New_Connection(_) -> (&conn, &conn_ok) do
+    await conn_ok;
+
+    var& Channel channel;
+    event& void ch_ok;
+    spawn New_Channel(&conn) -> (&channel, &ch_ok);
+    await ch_ok;
+
+    var Communicator comm = val Communicator(&channel);
+
+    vector[] byte res_id = [] .. "test_resource";
+    spawn FRCP_Start(&comm, &res_id);
+
+    var& Topic topic;
+    event& void topic_ok;
+    vector[] byte topic_id = [] .. "test_topic";
+    spawn New_Topic(&comm, &topic_id) -> (&topic, &topic_ok);
+    await topic_ok;
+
+    var InformContext ctx_b = _;
+    await Post_Inform(&comm, &topic, &ctx_b);
+
+    await 3s;
+end
+
+escape 0;
+#endif*/
+#endif
+

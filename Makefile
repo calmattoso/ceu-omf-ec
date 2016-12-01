@@ -9,21 +9,21 @@ CEU_ARGS = --ceu --ceu-features-lua=true                               \
 	       --env --env-types=$(CEU_DIR)/env/types.h                    \
 	             --env-threads=$(CEU_DIR)/env/threads.h             \
 	             --env-main=$(CEU_DIR)/env/main.c                      \
-	        --cc --cc-args="-Isrc/ -I$(CEU_RMQ_DIR)/src -lrabbitmq -llua5.3 -lpthread -luv" \
+	        --cc --cc-args="-Isrc/ -Isrc/frcp/ -I$(CEU_RMQ_DIR)/src -lrabbitmq -llua5.3 -lpthread -luv" \
 	             --cc-output=$(TARGET)
 
 all:
 
 test:
-	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -DDEBUG -D$(TARGET)_test" \
+	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -I$(CEU_RMQ_DIR)/src -Isrc/ -DDEBUG -D$(TARGET)_test" \
 	          --pre-input=src/$(TARGET).ceu $(CEU_ARGS)
 	    
 	./$(TARGET)
 
 example:
-	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -I$(CEU_RMQ_DIR)/src -D$(TARGET)_test -DDEBUG" \
+	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -I$(CEU_RMQ_DIR)/src -Isrc/ -D$(TARGET)_test -DDEBUG" \
 	          --pre-input=src/$(SAMPLE)/$(TARGET).ceu $(CEU_ARGS)
 	    
 	./$(TARGET)
 
-.PHONY: all connection example
+.PHONY: all test example

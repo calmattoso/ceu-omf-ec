@@ -7,23 +7,38 @@
 #include "communicator.ceu"
 #include "topic.ceu"
 
-code/await FRCP_Start(var& Communicator communicator, vector&[] byte id) -> FOREVER
+#include <channel.ceu>
+
+code/await FRCP_Start(var& Communicator communicator, vector&[] byte id) -> (event& void ok) -> FOREVER
 do
+    event void ok_;
+    ok = &ok_;
+
+    // Preserve the ID of running node
+    [[
+        frcp_res_id = @id
+    ]]
+
     var& Topic res_topic;
     event& void topic_ok;
     spawn New_Topic(&communicator, &id) -> (&res_topic, &topic_ok);
     await topic_ok;
 
+    var& Subscription sub_id;
     event& void sub_ok;
-    spawn Subscribe_Topic(&communicator, &res_topic) -> (&sub_ok);
+    spawn Subscribe_Topic(&communicator, &res_topic) -> (&sub_id, &sub_ok);
     await sub_ok;
 
     spawn Channel_Consume(&communicator.channel, &outer.default_handlers);
 
+    emit ok_;
     await FOREVER;
 end
 
 #ifdef start_test
+#include <connection.ceu>
+#include <channel.ceu>
+
 var& Connection conn;
 event& void conn_ok;
 watching New_Connection(_) -> (&conn, &conn_ok) do
@@ -36,8 +51,10 @@ watching New_Connection(_) -> (&conn, &conn_ok) do
 
     var Communicator comm = val Communicator(&channel);
 
+    event& void start_done;
     vector[] byte res_id = [] .. "test_resource";
-    spawn FRCP_Start(&comm, &res_id);
+    spawn FRCP_Start(&comm, &res_id) -> (&start_done);
+    await start_done;
 
     await 3s;
 end

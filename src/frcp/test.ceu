@@ -1,0 +1,27 @@
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+data Media as nothing;
+
+data Media.Audio with
+    var int a = 2;
+end
+
+data Media.Video with
+    var int v = 1;
+end
+
+code/await/dynamic Play (dynamic var& Media media) -> void do
+    escape;             // never dispatched
+end
+
+code/await/dynamic Play (dynamic var& Media.Audio media) -> void do
+    await 1s;                   // plays an audio
+end
+
+code/await/dynamic Play (dynamic var& Media.Video media) -> void do
+    await 2s;                  // plays a video
+end
+
+escape 0;
+

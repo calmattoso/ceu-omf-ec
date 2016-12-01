@@ -1,0 +1,131 @@
+#ifndef _OMF_START_CEU
+#define _OMF_START_CEU
+
+#include "lua_utils.ceu"
+
+#include "frcp/communicator.ceu"
+#include "frcp/start.ceu"
+#include "frcp/msg_op_handlers.ceu"
+#include "frcp/handler.ceu"
+
+#include <connection.ceu>
+#include <channel.ceu>
+[[
+
+apps = {
+    list = {},
+    
+    define = function(apps, id, app_tab)
+        apps.list[id] = app_tab
+    end,
+}
+
+groups = {
+    list = {},
+
+    define = function(g, id, group_tab)
+        g.list[id] = group_tab
+    end,
+}
+
+]]
+
+vector[] Communicator omf_comm = [];
+
+event void omf_all_up;
+
+code/await OMF_Start(void) -> (event& void ok) -> void do    
+    event void ok_;
+    ok = &ok_;
+
+    var& Connection conn;
+    event& void conn_ok;
+
+    watching New_Connection(_) -> (&conn, &conn_ok) do
+        await conn_ok;
+
+        var& Channel channel;
+        event& void ch_ok;
+        spawn New_Channel(&conn) -> (&channel, &ch_ok);
+        await ch_ok;
+
+        var Communicator comm = val Communicator(&channel);
+        outer.omf_comm = outer.omf_comm .. [comm];
+
+        event& void start_done;
+        vector[] byte res_id = [] .. "test_resource";
+        spawn FRCP_Start(&comm, &res_id) -> (&start_done);
+        await start_done;
+
+        emit ok_;
+        await FOREVER;
+    end
+end
+
+code/await Start_Application(vector&[] byte group_id, vector&[] byte app_id) -> void
+do
+    // Start app
+    _assert(0);
+end
+
+// Definicao de aplicacoes
+[[
+    apps:define("ping_oml2", {
+        -- Meta-atributos
+        description = "Simple Definition for the ping-oml2 application",
+        binary_path = "/usr/bin/ping-oml2",
+        -- Atributos da aplicacao
+        props = {
+            target = {
+                description = "Address to ping",
+                command     = "-a",    
+            },
+            count = {
+                description = "Number of times to ping",
+                command     = "-c",
+            },
+        },
+        -- Metricas nao foram implementadas...
+    })
+]]
+
+// Definicao de grupos
+[[
+    groups:define("Sender", {
+        nodes = {
+            "omf.nicta.node8"
+        },
+        apps = {
+            ping_oml2 = {
+                target = "www.nicta.com.au",
+                count  = 3,
+            },
+        },
+    })
+]]
+
+// Definicao de experimento
+event& void ok;
+watching OMF_Start() -> (&ok) do
+    await ok;
+
+    /* Usario insere seu codigo abaixo */
+
+    _printf("This is my first OMF experiment!\n");
+
+    vector[] byte group_id = [] .. "Sender";
+    vector[] byte app_id   = [] .. "ping_oml2";
+
+    // Dispara todas as applicacoes
+    await Start_Application(&group_id, &app_id);
+
+    // Executa por cinco segundos
+    await 5s;
+
+    // Experimento encerrado automaticamente para o usuario
+end
+
+escape 0;
+
+#endif
+

@@ -1,0 +1,52 @@
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+/*data Xx with
+    var int x = 10;
+end
+
+code/await Recurso(void) -> (event& int ok) -> void 
+do
+    event int ok_;
+    ok = &ok_;
+
+    await 1s;
+
+    emit ok_(5);
+
+    await 5s;
+end
+
+code/await Exemplo(void) -> (var&? Xx x) -> void
+do
+    event& int ok;
+    watching Recurso() -> (&ok) do
+        var int v = await ok;
+        
+        var Xx y = val Xx(v);
+        x = &y;
+            
+        await FOREVER;
+    end
+end*/
+
+data Xx with
+    var int u = 1;
+end
+
+var int k = [[ os.time() % 2 ]];
+var&? int x;
+await 1s;
+
+if k == 1 then
+    var int y = 5;
+    x = y;
+end
+
+if x? then
+    _printf("%d\n", x!);
+end
+
+escape 0;
+
+

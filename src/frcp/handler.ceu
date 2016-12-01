@@ -4,14 +4,213 @@
 #include <c.ceu>
 #include <uv/uv.ceu>
 #include <amqp_base.ceu>
+
 #include <channel_data.ceu>
 #include <envelope.ceu>
 
-code/await Handler (var& Channel channel, var Envelope env) -> void do
-    _printf("#==============================================================================#\n");
-    _printf("\tHOLA! Received message for handler with tag `%d`.\n", env.handler_tag);
-    _printf("\tMsg: %s\n", _stringify_bytes(env.contents.message.body));
-    _printf("#==============================================================================#\n\n");
+#include "communicator.ceu"
+#include "topic.ceu"
+#include "payload.ceu"
+
+#ifdef handler_test
+#include "msg_op_handlers.ceu"
+#endif
+
+code/await Handler (var& Channel channel, var Envelope env) -> void
+do
+    // Get the ID of the resource from the environment. FRCP_Start must have run before this.
+    vector[] byte res_id = [] .. [[ frcp_res_id ]];  
+
+    // Extract JSON payload and convert it to Ceu Payload
+    var _char&& payload_c_str = null;
+    payload_c_str = _stringify_bytes(env.contents.message.body);
+    do finalize with
+        _free(payload_c_str);
+    end
+
+    _printf("-----\n%s\n-----\n\n", payload_c_str);
+
+    var Payload in_payload = _;
+    vector[] byte payload_ceu_str = [] .. (&&payload_c_str[0] as _char&&);
+    call JSONToPayload(&payload_ceu_str, &in_payload);
+
+    // Perform checks to assess if the resource is the destination for the message.
+    // - First check if the message's `src` field matches the resource id.  
+    // - If `guard` is set, have the resource itself check if its attributes match the target.
+    if (_strcmp((&&in_payload.src[0] as _char&&), (&&res_id[0] as _char&&)) == 0) then
+#ifdef DEBUG
+        _printf("Own msg, ignoring...\n");
+#endif
+        escape;
+    end 
+
+    if ($in_payload.guard > 0) then 
+        var bool is_target = await Check_Guard(&in_payload.guard);
+        if (not is_target) then
+            escape;
+        end
+    end
+
+    // As we're handling the message, set up communicator and resource topic
+    var Communicator comm = val Communicator(&channel);
+
+    var&   Topic res_topic;
+    event& void  topic_ok;
+    spawn New_Topic(&comm, &res_id) -> (&res_topic, &topic_ok);
+    await topic_ok;
+
+    // Dummy initializers...
+    vector[] byte dummy_err_reason = [] .. "";
+    event    int  dummy_handler_yield;
+
+    var    Topic dummy_rp_topic = _;
+    event  void  dummy_rp_topic_ok;
+
+    // Now process message per type...
+    var int handler_err = FRCP_RET_SUCCESS;
+    if (_strcmp((&&in_payload.op[0] as _char&&), FRCP_OP_INFORM) == 0) then
+        // if msg has cid and it's in lookup table, remove cid from lookup table
+        handler_err = await Handle_Inform(&in_payload.props);
+    else
+        // If `rp` is set, then we must also post messages to it. If such is the case
+        // create `rp_topic`.
+        var& Topic rp_topic;
+        event& void rp_topic_ok;
+        if ($in_payload.rp > 0) then
+            spawn New_Topic(&comm, &res_id) -> (&rp_topic, &rp_topic_ok);
+            await rp_topic_ok;
+        else
+            rp_topic    = &dummy_rp_topic;
+            rp_topic_ok = &dummy_rp_topic_ok;
+        end
+
+        // Dealing with message that alters the state of resource, so need to publish an inform response.
+        var Payload response = in_payload; // copy original payload
+    
+        response.op  = [] .. FRCP_OP_INFORM;
+        response.cid = [] .. in_payload.mid;        
+
+        vector&[] byte err_reason;
+        event& int handler_yield; // FRCP_RET_{SUCCESS,ERROR,WIP}
+
+        // CREATE
+        if (_strcmp((&&in_payload.op[0] as _char&&), FRCP_OP_CREATE) == 0) then
+#ifdef DEBUG
+            _printf("create\n");
+#endif
+            spawn Handle_Create(&in_payload.props) -> (&handler_yield, &err_reason);
+            handler_err = await handler_yield;
+
+            if handler_err == FRCP_RET_SUCCESS then
+                response.it = [] .. FRCP_IT_CREATION_OK;
+            else
+                response.it = [] .. FRCP_IT_CREATION_FAILED;
+            end
+
+        // CONFIGURE
+        else/if (_strcmp((&&in_payload.op[0] as _char&&), FRCP_OP_CONFIGURE) == 0) then
+#ifdef DEBUG
+            _printf("configure\n");
+#endif
+            // if configure carries membership, then sign up to topic and ignore user handler
+            [[
+                config_props = JSON:decode(@in_payload.props)
+            ]]
+            vector[] byte membership = [] .. [[ config_props.membership or "" ]];
+            if ($membership > 0) then
+                err_reason    = &dummy_err_reason;
+                handler_yield = &dummy_handler_yield;
+
+                // subscribe to new topic from membership                
+                var&   Topic memb_topic;
+                event& void  memb_topic_ok;
+                spawn New_Topic(&comm, &membership) -> (&memb_topic, &memb_topic_ok)
+                    in outer.frcp_topic_pool;
+                await memb_topic_ok;
+
+                var&   Subscription sub_id;
+                event& void         sub_ok;
+                spawn Subscribe_Topic(&comm, &memb_topic) -> (&sub_id, &sub_ok) 
+                    in outer.frcp_subscription_pool;
+                await sub_ok;
+                
+                // Now, generate the complete list of memberships to publish in the response.
+                [[  
+                    memb_keyset = {}
+                    for (k,v) in pairs(frcp_membership_set) do
+                        table.insert(memb_keyset, k)
+                    end
+                    config_props.membership = memb_keyset
+                    config_props_str = JSON:encode(config_props)
+                ]]
+                response.props = [] .. [[ config_props_str ]];
+                response.it    = [] .. FRCP_IT_STATUS;
+            else
+                vector&[] byte new_props;
+                spawn Handle_Configure(&in_payload.props) -> (&handler_yield, &err_reason, &new_props);
+                every handler_err in handler_yield do
+                    response.props = [] .. new_props;
+                    response.it    = [] .. FRCP_IT_STATUS; // assume success
+
+                    // If we reach success or error, publish final (possibly only) message outside.
+                    if handler_err != FRCP_RET_WIP then 
+                        if handler_err == FRCP_RET_ERROR then
+                            response.it = [] .. FRCP_IT_ERROR;
+                        end
+                        break; 
+                    end
+
+                    // If still updating, then publish progress...
+                    spawn Publish_Payload(&comm, &rp_topic, response) in outer.frcp_publish_dispatch;
+                end
+            end
+        // REQUEST
+        else/if (_strcmp((&&in_payload.op[0] as _char&&), FRCP_OP_REQUEST) == 0) then
+#ifdef DEBUG
+            _printf("request\n");
+#endif
+            vector&[] byte new_props;
+            spawn Handle_Request(&in_payload.props) -> (&handler_yield, &err_reason, &new_props);
+            handler_err = await handler_yield;
+            
+            response.props = [] .. new_props;
+            if handler_err == FRCP_RET_SUCCESS then
+                response.it = [] .. FRCP_IT_STATUS;
+            else
+                response.it = [] .. FRCP_IT_ERROR;
+            end
+
+        // RELEASE
+        else/if (_strcmp((&&in_payload.op[0] as _char&&), FRCP_OP_RELEASE) == 0) then
+#ifdef DEBUG
+            _printf("release\n");
+#endif
+            spawn Handle_Release(&in_payload.props) -> (&handler_yield, &err_reason);
+            handler_err = await handler_yield;
+
+            if handler_err == FRCP_RET_SUCCESS then
+                response.it = [] .. FRCP_IT_RELEASE_OK;
+            else
+                response.it = [] .. FRCP_IT_RELEASE_FAILED;
+            end
+
+        else
+            // dummy... not lit
+            err_reason    = &dummy_err_reason;
+            handler_yield = &dummy_handler_yield;
+        end
+
+        // If an error occurred, set error message
+        if handler_err == FRCP_RET_ERROR then
+            response.reason = [] .. err_reason;
+        end 
+
+        // Publish to resource topic and, if applicable, to `reply_to` topic
+        spawn Publish_Payload(&comm, &res_topic, response) in outer.frcp_publish_dispatch;
+        if ($in_payload.rp > 0) then
+            spawn Publish_Payload(&comm, &rp_topic, response) in outer.frcp_publish_dispatch;
+        end
+    end
 end
 
 #endif

@@ -10,31 +10,44 @@
 data Topic with
     vector&[] byte     name;
     var&      Exchange exchange;
+    event&    void     terminate;
 end
 
 code/await New_Topic(var& Communicator communicator, vector&[] byte name) 
                         -> (var& Topic topic, event& void ok) 
                             -> FOREVER 
 do
-    event void ok_;
+    event void ok_, terminate;
     ok = &ok_;
 
     var& Exchange topic_exchange;
     event& void ex_ok;
     spawn New_Exchange(&communicator.channel, 
                        ExchangeContext((&&name[0] as _char&&), "fanout",_,_,_,_,_)) -> (&topic_exchange, &ex_ok);
-    var Topic topic_ = val Topic(&name, &topic_exchange);
-    topic = &topic_;    
+    var Topic topic_ = val Topic(&name, &topic_exchange, &terminate);
+    topic = &topic_;
     await ex_ok;
 
     emit ok_;
-    await FOREVER;
+    await terminate;
 end 
+pool[] New_Topic frcp_topic_pool;
+
+data Subscription with
+    var&   Topic topic;
+    event& void  stop;
+end
+vector[] Subscription&& frcp_subscription_ids = [];
 
 code/await Subscribe_Topic(var& Communicator communicator, var& Topic topic)
-                                -> (event& void ok)
+                                -> (var& Subscription sub_id, event& void ok)
                                     -> FOREVER
 do
+    event void stop;
+    var Subscription sub_id_ = val Subscription(&topic, &stop);
+    sub_id = &sub_id_;
+    outer.frcp_subscription_ids = outer.frcp_subscription_ids .. [&&sub_id_]; // preserve subscription
+
     event void ok_;
     ok = &ok_;
 
@@ -52,10 +65,24 @@ do
     event& void qsub_ok;
     spawn Subscribe_Queue(&communicator.channel, &queue, _, 0) -> (&qsub_ok);
     await qsub_ok;
+    
+    // Count finalization of membership    
+    do finalize with
+        [[
+            frcp_membership_set[@topic.name] = nil
+        ]]
+        emit topic.terminate;
+    end
+
+    // keep track of the subscribed topic
+    [[
+        frcp_membership_set[@topic.name] = true
+    ]]
 
     emit ok_;
-    await FOREVER;
+    await stop;
 end
+pool[] Subscribe_Topic frcp_subscription_pool;
 
 #endif
 

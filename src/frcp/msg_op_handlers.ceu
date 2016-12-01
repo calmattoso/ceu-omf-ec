@@ -1,0 +1,98 @@
+#ifndef _FRCP_MSG_OP_HANDLERS_CEU
+#define _FRCP_MSG_OP_HANDLERS_CEU
+
+#include "payload_data.ceu"
+
+code/await Check_Guard(vector&[] byte guard) -> bool do
+    escape false;
+end
+
+code/await Handle_Create(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason) 
+                                -> FOREVER
+do
+    event int done_;
+    done = &done_;
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;    
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+code/await Handle_Configure(vector&[] byte props) 
+                            -> (event& int step, vector&[] byte err_reason, vector&[] byte new_props) 
+                                -> FOREVER
+do
+    event int step_;
+    step = &step_;
+
+    vector[] byte new_props_ = [] .. "";
+    new_props = &new_props_; 
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;
+
+    await async do nothing; end;
+    emit step_(FRCP_RET_SUCCESS); // Signal update task is complete
+    await FOREVER;
+end
+
+code/await Handle_Inform(vector&[] byte props) -> int do
+    escape FRCP_RET_SUCCESS;
+end
+
+code/await Handle_Release(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason) 
+                                -> FOREVER
+do
+    event int done_;
+    done = &done_;
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;    
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+code/await Handle_Request(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason, vector&[] byte new_props) 
+                                -> FOREVER
+do
+    event int done_;
+    done = &done_;
+
+    vector[] byte new_props_ = [] .. "";
+    new_props = &new_props_; 
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+#ifdef m1sg_op_handlers_test
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+vector[] byte props = [] .. "...";
+event& int step;
+vector&[] byte new_props, err_reason;
+spawn Handle_Configure(&props) -> (&step, &err_reason, &new_props);
+    
+var int err;
+every err in step do
+    //_printf("Received payload: %s\n", (&&new_props[0] as _char&&));
+    if err == FRCP_RET_SUCCESS or err == FRCP_RET_ERROR then
+        break;
+    end
+end
+
+escape 0;
+#endif
+
+#endif
+

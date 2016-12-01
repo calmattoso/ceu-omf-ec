@@ -1,17 +1,12 @@
 #ifndef _FRCP_COMMUNICATOR_CEU
 #define _FRCP_COMMUNICATOR_CEU
 
-#include <connection.ceu>
-#include <channel.ceu>
-
-data CommunicatorContext with
-    var ConnectionContext conn_context;
-end
+#include "frcp_base.ceu"
+#include <channel_data.ceu>
 
 data Communicator with 
     var& Channel channel;
 end
-
 
 #endif
 
