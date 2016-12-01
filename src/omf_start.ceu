@@ -30,42 +30,54 @@ groups = {
 
 ]]
 
-vector[] Communicator omf_comm = [];
 
-event void omf_all_up;
-
-code/await OMF_Start(void) -> (event& void ok) -> void do    
-    event void ok_;
-    ok = &ok_;
-
-    var& Connection conn;
-    event& void conn_ok;
-
-    watching New_Connection(_) -> (&conn, &conn_ok) do
-        await conn_ok;
-
-        var& Channel channel;
-        event& void ch_ok;
-        spawn New_Channel(&conn) -> (&channel, &ch_ok);
-        await ch_ok;
-
-        var Communicator comm = val Communicator(&channel);
-        outer.omf_comm = outer.omf_comm .. [comm];
-
-        event& void start_done;
-        vector[] byte res_id = [] .. "test_resource";
-        spawn FRCP_Start(&comm, &res_id) -> (&start_done);
-        await start_done;
-
-        emit ok_;
-        await FOREVER;
-    end
-end
-
-code/await Start_Application(vector&[] byte group_id, vector&[] byte app_id) -> void
+code/await Start_Application(var& Communicator c, vector&[] byte group_id, vector&[] byte app_id) -> void
 do
     // Start app
     _assert(0);
+end
+
+event void omf_all_up;
+
+// Definicao de experimento
+code/await Experiment(var& Communicator c) -> (void) -> void do
+    await outer.omf_all_up;
+
+    _printf("This is my first OMF experiment!\n");
+
+    vector[] byte group_id = [] .. "Sender";
+    vector[] byte app_id   = [] .. "ping_oml2";
+
+    // Dispara todas as applicacoes
+    await Start_Application(&c, &group_id, &app_id);
+
+    // Executa por cinco segundos
+    await 5s;
+
+    // Experimento encerrado automaticamente para o usuario
+end
+
+code/await Experiment(var& Communicator c) -> void;
+
+var& Connection conn;
+event& void conn_ok;
+watching New_Connection(_) -> (&conn, &conn_ok) do
+    await conn_ok;
+
+    var& Channel channel;
+    event& void ch_ok;
+    spawn New_Channel(&conn) -> (&channel, &ch_ok);
+    await ch_ok;
+
+    var Communicator comm = val Communicator(&channel);
+
+    event& void start_done;
+    vector[] byte res_id = [] .. "test_resource";
+    spawn FRCP_Start(&comm, &res_id) -> (&start_done);
+    await start_done;
+        
+    spawn Experiment(&comm);
+    await FOREVER;
 end
 
 // Definicao de aplicacoes
@@ -103,27 +115,6 @@ end
         },
     })
 ]]
-
-// Definicao de experimento
-event& void ok;
-watching OMF_Start() -> (&ok) do
-    await ok;
-
-    /* Usario insere seu codigo abaixo */
-
-    _printf("This is my first OMF experiment!\n");
-
-    vector[] byte group_id = [] .. "Sender";
-    vector[] byte app_id   = [] .. "ping_oml2";
-
-    // Dispara todas as applicacoes
-    await Start_Application(&group_id, &app_id);
-
-    // Executa por cinco segundos
-    await 5s;
-
-    // Experimento encerrado automaticamente para o usuario
-end
 
 escape 0;
 
