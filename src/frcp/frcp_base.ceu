@@ -8,6 +8,7 @@ end
 #include <lua_utils.ceu>
 
 [[
+-- This table keeps track of non-inform messages to which we have still not yet received a reply
 frcp_response_lookup = {}
 
 frcp_membership_set = {}

@@ -6,6 +6,7 @@
 
 #include "communicator.ceu"
 #include "topic.ceu"
+#include "handler.ceu"
 
 #include <channel.ceu>
 

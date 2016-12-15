@@ -1,0 +1,43 @@
+# Simple OEDL Experiment for OMF
+# displays the hostname and date/time of the remote RC
+
+defApplication('ping') do |app|
+  app.description = 'Simple Definition for the ping application'
+  app.binary_path = '/usr/bin/ping'
+
+  app.defProperty('target', 'Address to ping', '')
+  app.defProperty('count', 'Number of times to ping', '-c')
+end
+
+defApplication('date') do |app|
+  app.description = 'Simple Definition for the date application'
+  app.binary_path = '/usr/bin/date'
+
+  app.defProperty('date', 'display time described by STRING, not now', '--date')
+end
+
+defGroup('Actor', 'omf-rc') do |g|
+  g.addApplication("ping") do |app|
+    app.name = 'ping_google'
+    app.setProperty('target', 'google.com')
+    app.setProperty('count', 3)
+  end
+
+  g.addApplication("date") do |app|
+    app.name = 'date_LA'
+    app.setProperty('date', 'TZ="America/Los_Angeles" 09:00 next Fri')
+  end
+end
+
+onEvent(:ALL_UP) do |event|
+  wait 3
+  info "TEST - do ping app"
+  group("Actor").startApplication("date_LA")
+
+  wait 3
+  info "TEST - do date app"
+  group("Actor").startApplication("ping_google")
+
+  wait 3
+  Experiment.done
+end

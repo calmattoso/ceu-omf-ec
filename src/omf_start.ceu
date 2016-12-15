@@ -1,64 +1,63 @@
 #ifndef _OMF_START_CEU
 #define _OMF_START_CEU
 
-#include "lua_utils.ceu"
+#include "omf_base.ceu"
+#include "msg_op_handlers.ceu"
 
 #include "frcp/communicator.ceu"
 #include "frcp/start.ceu"
-#include "frcp/msg_op_handlers.ceu"
 #include "frcp/handler.ceu"
+#include "frcp/payload.ceu"
 
 #include <connection.ceu>
 #include <channel.ceu>
-[[
+#include <qos.ceu>
 
-apps = {
-    list = {},
-    
-    define = function(apps, id, app_tab)
-        apps.list[id] = app_tab
-    end,
-}
+// SUBSCRIBE TO ALL THE TOPICS!
 
-groups = {
-    list = {},
-
-    define = function(g, id, group_tab)
-        g.list[id] = group_tab
-    end,
-}
-
-]]
-
-
-code/await Start_Application(var& Communicator c, vector&[] byte group_id, vector&[] byte app_id) -> void
+code/await Start_Application(var& Communicator c, vector&[] byte group_id, vector&[] byte app_instance_id) -> void
 do
     // Start app
-    _assert(0);
+    _printf("Starting apps!\n");
+
+    // 1. Send CREATE message w/ all the app params and with the topic to which the app must subscribe. This topic is 
+    //    shared by all apps under the same group, so future messages must carry a guard. Note that this topic was 
+    //    already set up and subscribed to by the experiment controller during the group setup phase below.
+    // 1.1 Capture the res_id of the creation in the app instance (per node) 
+    
+    // Setup the local state for the application
+    [[
+        groups[@group_id].apps[@app_instance_id] = Group.make_application(@group_id, @app_instance_id)
+        start_app_props = Application.get_parameters(groups[@group_id].apps[@app_instance_id])
+        start_app_props.type       = "application"        
+        start_app_props.state      = "created"
+        start_app_props.hrn        = @app_instance_id
+        start_app_props.membership = 
+            "amqp://localhost/frcp." .. groups[@group_id].topic .. "_application" -- make apps sub to shared app topic
+    ]]
+
+    // Send a CREATE message to the shared app topic with the app parameters
+    vector[] byte group_topic_name = [] .. [[ groups[@group_id].topic ]];
+    var&   Topic group_topic;
+    event& void  group_topic_ok;
+    spawn New_Topic(&c, &group_topic_name) -> (&group_topic, &group_topic_ok);
+    await group_topic_ok;
+    
+    var Payload p = _;
+    p.op    = [] .. FRCP_OP_CREATE;
+    p.props = [] .. [[ JSON:encode(start_app_props) ]];
+    p.rp    = [] .. "amqp://localhost/frcp." .. [[ groups[@group_id].topic ]];
+
+    await Publish_Payload(&c, &group_topic, p);
+
+    // 2. Later, in the handler, send CONFIGURE msg to APP topic with a simple OMF "running status"...
 end
 
-event void omf_all_up;
 
-// Definicao de experimento
-code/await Experiment(var& Communicator c) -> (void) -> void do
-    await outer.omf_all_up;
-
-    _printf("This is my first OMF experiment!\n");
-
-    vector[] byte group_id = [] .. "Sender";
-    vector[] byte app_id   = [] .. "ping_oml2";
-
-    // Dispara todas as applicacoes
-    await Start_Application(&c, &group_id, &app_id);
-
-    // Executa por cinco segundos
-    await 5s;
-
-    // Experimento encerrado automaticamente para o usuario
-end
 
 code/await Experiment(var& Communicator c) -> void;
 
+do
 var& Connection conn;
 event& void conn_ok;
 watching New_Connection(_) -> (&conn, &conn_ok) do
@@ -69,54 +68,116 @@ watching New_Connection(_) -> (&conn, &conn_ok) do
     spawn New_Channel(&conn) -> (&channel, &ch_ok);
     await ch_ok;
 
-    var Communicator comm = val Communicator(&channel);
+    // Set prefetch to 1 message
+    event& void qos_ok;
+    spawn Qos(&channel, QosContext(1,_)) -> (&qos_ok);
+    await qos_ok;
 
+    var Communicator comm = val Communicator(&channel);
+    
+    // Create ID for the experiment
+    [[
+        exp_id = string.random(16, '%d%l%u')
+        omf_print("INFO", "OmfCéuEc::Experiment", "Experiment: " .. exp_id .. " starts")
+    ]]
+
+    // Start the FRCP engine
     event& void start_done;
-    vector[] byte res_id = [] .. "test_resource";
+    vector[] byte res_id = [] .. "ceu-omf-ec" .. [[ "-" .. string.random(4, '%d') ]];
     spawn FRCP_Start(&comm, &res_id) -> (&start_done);
     await start_done;
+
+    // Create experiment topic and issue CONFIGURE on target resource(s) (i.e. looping over group nodes)
+    // Note: in the handler we must monitor if resources have been started to trigger event -> check if we receive res_index
+    // We have to send the experiment topic to each node in every group, so they know to whom to talk
+    // No need to keep track of resource topics, we just gotta count how many startup replies we're waiting 
+    // \--> to emit omf_all_up...
+    
+    // Setup local OMF environment
+    // Loop over each group to setup their nodes
+    [[ group_ids = Group.get_group_ids() ]]
+
+    var int group_idx, node_idx, num_groups = [[ #group_ids ]];
+    loop group_idx in [1->num_groups] do
+        // First set up the group
+        [[ 
+            group_id = group_ids[@group_idx]
+            Group.setup_group(group_id) 
+        ]]
+
+        // Create and subscribe to a topic for the group, to which the resources must also subscribe
+        var&   Topic group_topic;
+        event& void  group_topic_ok;
+        vector[] byte group_topic_name = [] .. [[ exp_id .. "_" .. group_id ]];
+        spawn New_Topic(&comm, &group_topic_name) -> (&group_topic, &group_topic_ok)
+            in frcp_topic_pool;
+        await group_topic_ok;
+
+        var&   Subscription group_sub_id;
+        event& void         group_sub_ok;
+        spawn Subscribe_Topic(&comm, &group_topic) -> (&group_sub_id, &group_sub_ok)
+            in frcp_subscription_pool;
+        await group_sub_ok;
+
+        // Keep track of this topic, so we can recover it later to be released (and to cancel memberships)
+        [[
+            groups[group_id].topic = @group_topic_name
+        ]]
+
+        // Also take this opportunity to create and subscribe to the shared app topic for the group
+        // TODO: make a neat function for this...
+        var&   Topic app_topic;
+        event& void  app_topic_ok;
+        vector[] byte app_topic_name = [] .. [[ @group_topic_name .. "_application" ]];
+        spawn New_Topic(&comm, &app_topic_name) -> (&app_topic, &app_topic_ok)
+            in frcp_topic_pool;
+        await app_topic_ok;
+
+        var&   Subscription app_sub_id;
+        event& void         app_sub_ok;
+        spawn Subscribe_Topic(&comm, &app_topic) -> (&app_sub_id, &app_sub_ok)
+            in frcp_subscription_pool;
+        await app_sub_ok;
+
         
-    spawn Experiment(&comm);
-    await FOREVER;
+        // Now, for each node in the group, make them subscribe to their group topic (i.e. CONFIGURE w/ membership)
+        var int num_nodes = [[ #groups[group_id].node_ids ]]; 
+        loop node_idx in [1->num_nodes] do
+            // Setup local state for the node
+            [[ 
+                node_id = groups[group_id].node_ids[@node_idx]
+                Group.setup_node(group_id, node_id) 
+            ]]
+            vector[] byte node_name = [] .. [[ node_id ]];
+                
+            var&   Topic node_topic;
+            event& void  node_topic_ok;
+            spawn New_Topic(&comm, &node_name) -> (&node_topic, &node_topic_ok);
+            await node_topic_ok;
+
+            // We must send a CONFIGURE msg with the group topic and the node's resource index
+            var Payload p = _;
+            p.op = [] .. FRCP_OP_CONFIGURE;
+            p.rp = [] .. "amqp://localhost/frcp." .. group_topic_name;
+            [[
+                node_props = {
+                    res_index  = groups[group_id].nodes[node_id].res_index,
+                    membership = "amqp://localhost/frcp." .. @group_topic_name
+                }
+            ]]
+            p.props = [] .. [[ JSON:encode(node_props) ]];
+                
+            await Publish_Payload(&comm, &node_topic, p);
+            omf_nodes_not_up = omf_nodes_not_up + 1;
+        end
+    end
+
+    await Experiment(&comm);
+
+    [[ omf_print("INFO", "OmfCéuEc::Experiment", "OMF Ceu Experiment Controller 0.1 - Exit.") ]];
+end
 end
 
-// Definicao de aplicacoes
-[[
-    apps:define("ping_oml2", {
-        -- Meta-atributos
-        description = "Simple Definition for the ping-oml2 application",
-        binary_path = "/usr/bin/ping-oml2",
-        -- Atributos da aplicacao
-        props = {
-            target = {
-                description = "Address to ping",
-                command     = "-a",    
-            },
-            count = {
-                description = "Number of times to ping",
-                command     = "-c",
-            },
-        },
-        -- Metricas nao foram implementadas...
-    })
-]]
-
-// Definicao de grupos
-[[
-    groups:define("Sender", {
-        nodes = {
-            "omf.nicta.node8"
-        },
-        apps = {
-            ping_oml2 = {
-                target = "www.nicta.com.au",
-                count  = 3,
-            },
-        },
-    })
-]]
-
 escape 0;
-
 #endif
 

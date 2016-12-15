@@ -1,0 +1,33 @@
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+#include "communicator.ceu"
+#include "msg_op_handlers.ceu"
+#include "start.ceu"
+
+#include <connection.ceu>
+#include <channel.ceu>
+
+var& Connection conn_res;
+event& void conn_res_ok;
+
+watching New_Connection(_) -> (&conn_res, &conn_res_ok) do
+    await conn_res_ok;
+
+    var& Channel channel_res;
+    event& void ch_res_ok;
+    spawn New_Channel(&conn_res) -> (&channel_res, &ch_res_ok);
+    await ch_res_ok;
+
+    var Communicator comm_res = val Communicator(&channel_res);
+
+    event& void start_res_done;
+    vector[] byte res_id = [] .. "test_resource";
+    spawn FRCP_Start(&comm_res, &res_id) -> (&start_res_done);
+    await start_res_done;
+
+    await FOREVER;
+end
+
+escape 0;
+

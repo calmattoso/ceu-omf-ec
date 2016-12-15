@@ -1,0 +1,89 @@
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+#include "communicator.ceu"
+#include "msg_op_handlers.ceu"
+#include "start.ceu"
+
+#include <connection.ceu>
+#include <channel.ceu>
+
+code/await Run_Test(var& Communicator comm, var& Topic res_topic, var Payload p, var _plain_string test_id) -> void
+do
+    var _plain_string wrapper = "--------------------------------------------------------------------------------";
+    
+    _printf("\n%s\nTEST :: %s :: BEGIN\n%s\n", wrapper, test_id, wrapper);
+    await Publish_Payload(&comm, &res_topic, p);
+    await 500ms;
+    _printf("\n%s\nTEST :: %s :: END  \n%s\n", wrapper, test_id, wrapper);
+end
+
+var& Connection conn;
+event& void conn_ok;
+
+watching New_Connection(_) -> (&conn, &conn_ok) do
+    await conn_ok;
+
+    var& Channel channel;
+    event& void ch_ok;
+    spawn New_Channel(&conn) -> (&channel, &ch_ok);
+    await ch_ok;
+
+    var Communicator comm = val Communicator(&channel);
+
+    event& void start_done;
+    vector[] byte server_id = [] .. "controller";
+    spawn FRCP_Start(&comm, &server_id) -> (&start_done);
+    await start_done;
+
+    var& Topic res_topic;
+    event& void topic_ok;
+    vector[] byte target_res_id = [] .. "test_resource";
+    spawn New_Topic(&comm, &target_res_id) -> (&res_topic, &topic_ok);
+    await topic_ok;
+
+    var Payload p = _;
+    p.props  = [] .. [[ "{\"test\": \"oioioi\",\"field2\": [1,2,3]}" ]];
+    p.rp     = [] .. server_id;
+    p.it     = [] .. FRCP_IT_STATUS;
+    p.cid    = [] .. "";
+    p.guard  = [] .. [[ "{\"dummy\":\"dummy\"}" ]];
+
+    // 1. Test inform
+    p.op = [] .. FRCP_OP_INFORM;
+    await Run_Test(&comm, &res_topic, p, "Inform");
+
+    // 2. Test create
+    p.op = [] .. FRCP_OP_CREATE;
+    await Run_Test(&comm, &res_topic, p, "Create");
+
+    // 3. Test single-shot configure
+    p.op = [] .. FRCP_OP_CONFIGURE;
+    await Run_Test(&comm, &res_topic, p, "Configure - Single update");
+
+    // 3. Test iterative configure
+    p.op    = [] .. FRCP_OP_CONFIGURE;
+    p.props = [] .. [[ "{\"config\": true, \"transport\": \"UDP\", \"bitrate\": 1024}" ]];
+    await Run_Test(&comm, &res_topic, p, "Configure - Multiple updates");
+
+    // 4. Test error in config
+    p.op    = [] .. FRCP_OP_CONFIGURE;
+    p.props = [] .. [[ "{\"error\": true, \"transport\": \"UDP\", \"bitrate\": 1024}" ]];
+    await Run_Test(&comm, &res_topic, p, "Configure - Error");
+
+    // 5. Test request
+    p.op    = [] .. FRCP_OP_REQUEST;
+    p.props = [] .. [[ "{\"test\": \"\",\"field2\": \"\"}" ]];
+    await Run_Test(&comm, &res_topic, p, "Request");
+
+    // 6. Test release
+    p.op    = [] .. FRCP_OP_RELEASE;
+    p.props = [] .. [[ "{\"res_id\": \"1234\"}" ]];
+    await Run_Test(&comm, &res_topic, p, "Release");
+
+    await 20s;
+end
+
+escape 0;
+
+

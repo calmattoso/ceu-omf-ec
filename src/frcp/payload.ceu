@@ -9,7 +9,6 @@
 
 #include "payload_data.ceu"
 #include "msg_op_handlers.ceu"
-#include "handler.ceu"
 #include <publish.ceu>
 
 #include "communicator.ceu"
@@ -29,18 +28,22 @@
 code/await Publish_Payload(var& Communicator comm, var& Topic topic, var Payload payload) -> void
 do
     payload.mid = [] .. [[ string.random(FRCP_ID_LEN, "%d%l") ]];
-    payload.src = [] .. [[ frcp_res_id ]];
+    payload.src = [] .. [[ "amqp://localhost/frcp." .. frcp_res_id ]];
     payload.ts  = [] .. [[ os.time() ]];
 
     vector[] byte msg = [] .. "";
     call PayloadToJSON(&payload, &msg); 
-   
-    await Publish(&comm.channel, &topic.exchange, PublishContext("", (&&msg[0] as _char&&), _,_,outer.default_props));
+
+#ifdef DEBUG
+    _printf("Publishing `%s` to `%s`.\n", (&&msg[0] as _char&&), (&&topic.name[0] as _char&&));
+#endif
+
+    await Publish(&comm.channel, &topic.exchange, PublishContext("o.info", (&&msg[0] as _char&&), _,_,outer.default_props));
 
     // Record that we're waiting for an `inform` reply if msg is not of type inform.
     if (_strcmp((&&payload.op[0] as _char&&), FRCP_OP_INFORM) != 0) then
         [[
-            frcp_response_lookup[@payload.op] = @payload.mid
+            frcp_response_lookup[@payload.mid] = @payload.op 
         ]]
     end
 end
@@ -49,6 +52,7 @@ pool[] Publish_Payload frcp_publish_dispatch;
 
 #ifdef payload_test
 #include <connection.ceu>
+#include "handler.ceu"
 #include <channel.ceu>
 
 #include "start.ceu"

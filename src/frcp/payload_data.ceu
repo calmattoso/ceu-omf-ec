@@ -63,7 +63,6 @@
 
 data Payload with
     vector[] byte  op;
-    var      int   op_num; // internal lib use only
     vector[] byte  mid;     
     vector[] byte  src;
     vector[] byte  ts; 
@@ -94,7 +93,7 @@ do
 
 
     if ($payload.it > 0) then
-        json_str = json_str .. [q] .. "it" .. [q] .. ": " .. [q] .. payload.it .. [q] .. ",";
+        json_str = json_str .. [q] .. "itype" .. [q] .. ": " .. [q] .. payload.it .. [q] .. ",";
 
         if ($payload.cid > 0) then
             json_str = json_str .. [q] .. "cid" .. [q] .. ": " .. [q] .. payload.cid .. [q] .. ",";
@@ -125,7 +124,7 @@ do
     payload.ts     = [] .. [[ frcp_json_tab.ts ]];
     payload.props  = [] .. [[ JSON:encode(frcp_json_tab.props) ]];
     payload.rp     = [] .. [[ frcp_json_tab.rp or "" ]];
-    payload.it     = [] .. [[ frcp_json_tab.it or "" ]];
+    payload.it     = [] .. [[ frcp_json_tab.itype or "" ]];
     payload.cid    = [] .. [[ frcp_json_tab.cid or "" ]];
     payload.reason = [] .. [[ frcp_json_tab.reason or "" ]];
     payload.guard  = [] .. [[ JSON:encode(frcp_json_tab.guard) or "" ]];

@@ -15,7 +15,7 @@ CEU_ARGS = --ceu --ceu-features-lua=true                               \
 all:
 
 test:
-	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -I$(CEU_RMQ_DIR)/src -Isrc/ -DDEBUG -D$(TARGET)_test" \
+	ceu --pre --pre-args="-I$(CEU_DIR)/include -I$(CEU_UV_DIR)/include -I$(CEU_RMQ_DIR)/src -Isrc/ -D$(TARGET)_test" \
 	          --pre-input=src/$(TARGET).ceu $(CEU_ARGS)
 	    
 	./$(TARGET)

@@ -1,0 +1,177 @@
+#ifndef _FRCP_MSG_OP_HANDLERS_CEU
+#define _FRCP_MSG_OP_HANDLERS_CEU
+
+#include "frcp/payload.ceu"
+#include "frcp/communicator.ceu"
+
+code/await Check_Guard(vector&[] byte guard) -> bool do
+    escape true;
+end
+
+code/await Handle_Create(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason) 
+                                -> FOREVER
+do
+    _printf("--Create--\n%s\n----XX----\n", (&&props[0] as _char&&));
+
+    event int done_;
+    done = &done_;
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;    
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+code/await Handle_Configure(vector&[] byte props) 
+                            -> (event& int step, vector&[] byte err_reason, vector&[] byte new_props) 
+                                -> FOREVER
+do
+    _printf("--Config--\n%s\n----XX----\n", (&&props[0] as _char&&));
+
+    event int step_;
+    step = &step_;
+
+    vector[] byte new_props_ = [] .. props;
+    new_props = &new_props_; 
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;
+
+    emit step_(FRCP_RET_SUCCESS); // Signal update task is complete
+    await FOREVER;
+end
+
+/*
+In the FRCP context only central controllers are expected to receive Inform messages.
+Because of that, the entire payload is given to the controller, as it already must
+possesses greater knowledge of FRCP to orchestrate resources.
+Additionally, it could be the case (as it is in OMF) that the controller wishes to send
+additional messages upon receiving an inform. For that purpose, we provide the communicator
+and the type of the original message that resulted in an inform reply.
+*/
+code/await Handle_Inform(var& Communicator comm, var& Payload p, vector&[] byte request_type) -> int do
+    _printf("--Inform(%s)--\n%s\n----XX----\n", (&&request_type[0] as _char&&), (&&p.props[0] as _char&&));
+    [[
+        props_inf_recv = JSON:decode(@p.props)
+    ]]
+
+    // Set flags based on the content of props
+    var bool is_exp_sub      = [[ props_inf_recv.res_index ~= nil      ]],
+             is_app_creation = [[ props_inf_recv.hrn and omf_hrn_type[props_inf_recv.hrn] == "application" ]];
+
+    // CONFIGURE reply :: experiment subscription OR app creation
+    if ($request_type > 0 and _strcmp((&&request_type[0] as _char&&), FRCP_OP_CONFIGURE) == 0) then
+        // Is it a reply to the experiment subscription request? i.e. does it have res_index in msg
+        if is_exp_sub then
+            outer.omf_nodes_not_up = outer.omf_nodes_not_up - 1;
+
+            vector[] byte node_name = [] .. [[ omf_inverse_node_lookup[props_inf_recv.res_index].name ]];
+#ifdef DEBUG
+            _printf("[INFO] Node `%s` has signed up to the experiment!\n", (&&node_name[0] as _char&&));
+#endif
+
+            // Update the state of the node to "UP"
+            [[
+                groups[ omf_inverse_node_lookup[props_inf_recv.res_index].group ].nodes[@node_name].is_up = true
+            ]]
+
+            // If all nodes have replied, then emit ALL_UP
+            if outer.omf_nodes_not_up == 0 then
+                [[ 
+                    omf_print("INFO", "OmfCéuEc::Experiment", "Experiment: Event triggered: 'ALL_NODES_UP, ALL_UP'")
+                ]]
+                emit outer.omf_all_up;
+            end
+        // Is it a reply to an app creation configure (which sets up the app)?
+        else/if is_app_creation then
+            // Set the app to started/alive
+            [[ 
+                group_id = omf_app_to_group_lookup[props_inf_recv.hrn]
+                groups[group_id].apps[props_inf_recv.hrn].is_alive = true
+            ]]
+        end
+    else/if ($request_type > 0 and _strcmp((&&request_type[0] as _char&&), FRCP_OP_CREATE) == 0) then
+        // TODO: Error handling...
+        if (_strcmp(FRCP_IT_CREATION_OK, (&&p.it[0] as _char&&)) == 0 and is_app_creation) then
+            // Send CONFIGURE msg to APP topic with a simple OMF "running status"...
+            [[ group_id = omf_app_to_group_lookup[props_inf_recv.hrn] ]];
+            vector[] byte app_topic_name = [] .. [[ groups[group_id].topic .. "_application" ]];
+            var&   Topic app_topic;
+            event& void  app_topic_ok;
+            spawn New_Topic(&comm, &app_topic_name) -> (&app_topic, &app_topic_ok);
+            await app_topic_ok;
+            
+            var Payload p_cfg = _;
+            p_cfg.op    = [] .. FRCP_OP_CONFIGURE;
+            p_cfg.props = [] .. [[ JSON:encode({
+                state = "running",
+            })]];
+            p_cfg.guard = [] .. [[ JSON:encode({
+                type = "application",
+                name = props_inf_recv.hrn
+            })]];
+            p_cfg.rp    = [] .. "amqp://localhost/frcp." .. [[ groups[group_id].topic ]];
+
+            await Publish_Payload(&comm, &app_topic, p_cfg);
+        end
+    end
+
+    escape FRCP_RET_SUCCESS;
+end
+
+code/await Handle_Release(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason) 
+                                -> FOREVER
+do
+    event int done_;
+    done = &done_;
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;    
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+code/await Handle_Request(vector&[] byte props) 
+                            -> (event& int done, vector&[] byte err_reason, vector&[] byte new_props) 
+                                -> FOREVER
+do
+    _printf("---Request---\n%s\n-----XX-----\n", (&&props[0] as _char&&));
+    event int done_;
+    done = &done_;
+
+    vector[] byte new_props_ = [] .. [[ "{\"test\": \"OIoiOI\",\"field2\": [1,2,3]}" ]];
+    new_props = &new_props_; 
+
+    vector[] byte err_reason_ = [] .. "";
+    err_reason = &err_reason_;
+
+    await async do nothing; end;
+    emit done_(FRCP_RET_SUCCESS);
+end
+
+#ifdef msg_op_handlers_test
+#include <c.ceu>
+#include <uv/uv.ceu>
+
+vector[] byte props = [] .. "...";
+event& int step;
+vector&[] byte new_props, err_reason;
+spawn Handle_Configure(&props) -> (&step, &err_reason, &new_props);
+    
+var int err;
+every err in step do
+    //_printf("Received payload: %s\n", (&&new_props[0] as _char&&));
+    if err == FRCP_RET_SUCCESS or err == FRCP_RET_ERROR then
+        break;
+    end
+end
+
+escape 0;
+#endif
+
+#endif
+

@@ -23,7 +23,7 @@ do
     var& Exchange topic_exchange;
     event& void ex_ok;
     spawn New_Exchange(&communicator.channel, 
-                       ExchangeContext((&&name[0] as _char&&), "fanout",_,_,_,_,_)) -> (&topic_exchange, &ex_ok);
+                       ExchangeContext((&&name[0] as _char&&), "topic",_,_,_,_,_)) -> (&topic_exchange, &ex_ok);
     var Topic topic_ = val Topic(&name, &topic_exchange, &terminate);
     topic = &topic_;
     await ex_ok;
@@ -59,7 +59,7 @@ do
     await q_ok;
 
     event& void bind_ok;
-    spawn Bind_Queue(&communicator.channel, &queue, &topic.exchange, "", _amqp_empty_table) -> (&bind_ok);
+    spawn Bind_Queue(&communicator.channel, &queue, &topic.exchange, "o.*", _amqp_empty_table) -> (&bind_ok);
     await bind_ok;
 
     event& void qsub_ok;

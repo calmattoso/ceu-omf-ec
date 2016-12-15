@@ -2,15 +2,18 @@
 #define _FRCP_MSG_OP_HANDLERS_CEU
 
 #include "payload_data.ceu"
+#include "communicator.ceu"
 
 code/await Check_Guard(vector&[] byte guard) -> bool do
-    escape false;
+    escape true;
 end
 
 code/await Handle_Create(vector&[] byte props) 
                             -> (event& int done, vector&[] byte err_reason) 
                                 -> FOREVER
 do
+    _printf("--Create--\n%s\n----XX----\n", (&&props[0] as _char&&));
+
     event int done_;
     done = &done_;
 
@@ -25,21 +28,69 @@ code/await Handle_Configure(vector&[] byte props)
                             -> (event& int step, vector&[] byte err_reason, vector&[] byte new_props) 
                                 -> FOREVER
 do
+    _printf("--Config--\n%s\n----XX----\n", (&&props[0] as _char&&));
+
     event int step_;
     step = &step_;
 
-    vector[] byte new_props_ = [] .. "";
+    vector[] byte new_props_ = [] .. props;
     new_props = &new_props_; 
 
     vector[] byte err_reason_ = [] .. "";
     err_reason = &err_reason_;
 
-    await async do nothing; end;
-    emit step_(FRCP_RET_SUCCESS); // Signal update task is complete
+    [[
+        h_config_props = JSON:decode(@props)
+    ]]
+    var bool has_config = [[ h_config_props.config ~= nil ]];
+    var bool has_error  = [[ h_config_props.error  ~= nil ]];
+
+    // yield...
+    await async do nothing; end
+    
+    if (has_error) then
+        err_reason_ = [] .. "Unable to update resource.";
+        _printf("error 1\n");
+        emit step_(FRCP_RET_ERROR); 
+    else/if (has_config) then
+        [[
+            h_config_props.bitrate = {
+                unit = "kBps",
+                current = 0,
+                target = 1024,
+                progress = 0
+            }
+        ]]
+        var int i;
+        loop i in [1->4] do
+            [[
+                h_config_props.bitrate.current  = 256 * @i
+                h_config_props.bitrate.progress =  25 * @i
+            ]]
+
+            new_props_ = [] .. [[ JSON:encode(h_config_props) ]];
+            if i < 4 then
+                emit step_(FRCP_RET_WIP);
+            else
+                emit step_(FRCP_RET_SUCCESS);
+            end
+        end
+    else
+        emit step_(FRCP_RET_SUCCESS); // Signal update task is complete
+    end
     await FOREVER;
 end
 
-code/await Handle_Inform(vector&[] byte props) -> int do
+/*
+In the FRCP context only central controllers are expected to receive Inform messages.
+Because of that, the entire payload is given to the controller, as it already must
+possess greater knowledge of FRCP to orchestrate resources.
+Additionally, it could be the case (as it is in OMF) that the controller wishes to send
+additional messages upon receiving an inform. For that purpose, we provide the communicator
+and the type of the original message that resulted in an inform reply.
+*/
+code/await Handle_Inform(var& Communicator comm, var& Payload p, vector&[] byte request_type) -> int do
+    _printf("--Inform(%s)--\n%s\n----XX----\n", (&&request_type[0] as _char&&), (&&p.props[0] as _char&&));
     escape FRCP_RET_SUCCESS;
 end
 
@@ -47,6 +98,7 @@ code/await Handle_Release(vector&[] byte props)
                             -> (event& int done, vector&[] byte err_reason) 
                                 -> FOREVER
 do
+    _printf("---Release---\n%s\n-----XX-----\n", (&&props[0] as _char&&));
     event int done_;
     done = &done_;
 
@@ -61,10 +113,11 @@ code/await Handle_Request(vector&[] byte props)
                             -> (event& int done, vector&[] byte err_reason, vector&[] byte new_props) 
                                 -> FOREVER
 do
+    _printf("---Request---\n%s\n-----XX-----\n", (&&props[0] as _char&&));
     event int done_;
     done = &done_;
 
-    vector[] byte new_props_ = [] .. "";
+    vector[] byte new_props_ = [] .. [[ "{\"test\": \"OIoiOI\",\"field2\": [1,2,3]}" ]];
     new_props = &new_props_; 
 
     vector[] byte err_reason_ = [] .. "";
@@ -74,7 +127,7 @@ do
     emit done_(FRCP_RET_SUCCESS);
 end
 
-#ifdef m1sg_op_handlers_test
+#ifdef msg_op_handlers_test
 #include <c.ceu>
 #include <uv/uv.ceu>
 

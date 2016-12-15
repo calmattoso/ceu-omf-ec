@@ -1,0 +1,49 @@
+[[
+    -- Definicao de aplicacoes
+    apps = {
+       ping = { 
+            -- Meta-atributos
+            description = "Simple Definition for the ping application",
+            binary_path = "/usr/bin/ping",
+            -- Atributos da aplicacao
+            props = {
+                target = {
+                    description = "Address to ping",
+                    command     = "-a",    
+                },
+                count = {
+                    description = "Number of times to ping",
+                    command     = "-c",
+                },
+            },
+        },
+        date = {
+            -- Meta-atributos
+            description = "Simple Definition for the date application",
+            binary_path = "/usr/bin/date",
+            -- Atributos da aplicacao
+            props = {
+                date = {
+                    description = "Display time described by STRING, not now",
+                    command     = "--date",    
+                },
+            },
+        },
+    }
+
+    -- Definicao de grupos
+    groups["Actor"] = {
+        nodes = { "omf-rc" },
+        apps = {
+            ping_google = {
+                app_id = "ping",
+                target = "www.google.com",
+                count  = 3,
+            },
+            date_LA = {
+                app_id = "date",
+                date   = 'TZ="America/Los_Angeles" 09:00 next Fri',
+            }
+        },
+    }
+]]

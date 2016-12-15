@@ -1,0 +1,27 @@
+#ifndef _OMF_BASE_CEU
+#define _OMF_BASE_CEU
+
+[[
+    require 'src/lua_utils'
+    require 'src/groups'
+    require 'src/apps'
+
+    apps = {}   -- User has to fill this table with app specs
+    groups = {} -- User must fill this table with group definitions
+
+    -- Print special message
+    omf_print = function(type, issuer, msg)
+        time = os.date("*t")
+        print(("%02d:%02d:%02d  %s %s: %s"):format(time.hour, time.min, time.sec, type, issuer, msg))
+    end
+]]
+
+#include "config.ceu"
+
+// When this reaches 0, the omf_all_up event is triggered
+var int omf_nodes_not_up = 0;
+
+// Event triggered when all nodes are up (i.e. have replied to exp sub request)
+event void omf_all_up;
+
+#endif
