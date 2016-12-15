@@ -9,13 +9,13 @@ code/await Experiment(var& Communicator c) -> void do
 
     // Dispara app de ping
     vector[] byte ping_app_id   = [] .. "ping_google";
-    await Start_Application(&c, &group_id, &ping_app_id);
+    spawn Start_Application(&c, &group_id, &ping_app_id);
 
     await 3s;
 
     // Dispara app de ping
     vector[] byte date_app_id   = [] .. "date_LA";
-    await Start_Application(&c, &group_id, &date_app_id);
+    spawn Start_Application(&c, &group_id, &date_app_id);
 
     // Experimento encerrado automaticamente para o usuario
     await 3s;

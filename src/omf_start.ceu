@@ -15,7 +15,7 @@
 
 // SUBSCRIBE TO ALL THE TOPICS!
 
-code/await Start_Application(var& Communicator c, vector&[] byte group_id, vector&[] byte app_instance_id) -> void
+code/await Start_Application(var& Communicator c, vector&[] byte group_id, vector&[] byte app_instance_id) -> FOREVER
 do
     // Start app
     _printf("Starting apps!\n");
@@ -51,6 +51,7 @@ do
     await Publish_Payload(&c, &group_topic, p);
 
     // 2. Later, in the handler, send CONFIGURE msg to APP topic with a simple OMF "running status"...
+    await FOREVER;
 end
 
 
